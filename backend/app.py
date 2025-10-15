@@ -1,7 +1,10 @@
 from flask import Flask, jsonify, request
-from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from sqlalchemy_utils import database_exists, create_database
+from routes.auth import auth_bp
+from routes.product import product_bp
+from routes.order import order_bp
+from models import db,Product
 
 app = Flask(__name__)
 CORS(app)
@@ -19,15 +22,8 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 if not database_exists(app.config["SQLALCHEMY_DATABASE_URI"]):
     create_database(app.config["SQLALCHEMY_DATABASE_URI"])
     print(f"Database '{DB_NAME}' created successfully!")
+db.init_app(app)
 
-db = SQLAlchemy(app)
-
-# Models
-class Product(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120))
-    price = db.Column(db.Float)
-    description = db.Column(db.String(255))
 
 # Routes
 @app.route("/api/products", methods=["GET"])
@@ -43,7 +39,11 @@ def add_product():
     db.session.commit()
     return jsonify({"message": "Product added!"}), 201
 
+app.register_blueprint(auth_bp, url_prefix='/api/auth')
+app.register_blueprint(product_bp, url_prefix='/api')
+app.register_blueprint(order_bp, url_prefix='/api')
+
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000,debug = True)
