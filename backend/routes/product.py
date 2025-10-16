@@ -12,7 +12,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "dev_secret_key")
 # Helper: Auth Decorator
 # ----------------------------
 def token_required(f):
-    @wraps(f)
+    @wraps(f)#decorator
     def decorated(*args, **kwargs):
         token = request.headers.get('Authorization')
         if not token:
