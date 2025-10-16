@@ -1,0 +1,21 @@
+# Python backend
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+.env
+logs/
+
+# Node/React frontend
+node_modules/
+build/
+.env.local
+*.log
+
+# Git
+.git
+# Temporary lock files
+*.lock
+
