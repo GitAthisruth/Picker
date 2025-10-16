@@ -1,8 +1,9 @@
 from flask import Blueprint, request, jsonify
 from models import db, Product, CartItem, Order, OrderItem
-from product import token_required
-
-#token_required to verify user is logged in.
+from routes.product import token_required
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+import traceback
+from logger_config import logger
 
 order_bp = Blueprint('order', __name__)
 
@@ -12,20 +13,45 @@ order_bp = Blueprint('order', __name__)
 @order_bp.route('/cart', methods=['POST'])
 @token_required
 def add_to_cart(current_user):
-    data = request.get_json()
-    product = Product.query.get(data['product_id'])
-    if not product:
-        return jsonify({"message": "Product not found"}), 404
+    logger.info(f"[order.py] User {current_user.id} attempting to add item to cart")
 
-    cart_item = CartItem.query.filter_by(user_id=current_user.id, product_id=product.id).first()
-    if cart_item:
-        cart_item.quantity += data.get('quantity', 1)
-    else:
-        cart_item = CartItem(user_id=current_user.id, product_id=product.id, quantity=data.get('quantity',1))
-        db.session.add(cart_item)
+    try:
+        data = request.get_json()
+        if not data or 'product_id' not in data:
+            logger.warning("[order.py] Missing product_id in add_to_cart request")
+            return jsonify({"error": "Missing product_id"}), 400
 
-    db.session.commit()
-    return jsonify({"message": "Item added to cart"})
+        product = Product.query.get(data['product_id'])
+        if not product:
+            logger.warning(f"[order.py] Product not found: {data['product_id']}")
+            return jsonify({"message": "Product not found"}), 404
+
+        cart_item = CartItem.query.filter_by(user_id=current_user.id, product_id=product.id).first()
+        if cart_item:
+            cart_item.quantity += data.get('quantity', 1)
+        else:
+            cart_item = CartItem(user_id=current_user.id, product_id=product.id, quantity=data.get('quantity', 1))
+            db.session.add(cart_item)
+
+        db.session.commit()
+        logger.info(f"[order.py] Product {product.id} added to cart for user {current_user.id}")
+        return jsonify({"message": "Item added to cart"}), 200
+
+    except IntegrityError as e:
+        db.session.rollback()
+        logger.warning(f"[order.py] Integrity error while adding to cart: {str(e.orig)}")
+        return jsonify({"error": f"Integrity error: {str(e.orig)}"}), 400
+
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.error(f"[order.py] SQLAlchemy error while adding to cart:\n{traceback.format_exc()}")
+        return jsonify({"error": "Database error"}), 500
+
+    except Exception:
+        db.session.rollback()
+        logger.error(f"[order.py] Unexpected error while adding to cart:\n{traceback.format_exc()}")
+        return jsonify({"error": "Internal server error"}), 500
+
 
 # ----------------------------
 # View cart
@@ -33,13 +59,21 @@ def add_to_cart(current_user):
 @order_bp.route('/cart', methods=['GET'])
 @token_required
 def view_cart(current_user):
-    cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
-    return jsonify([{
-        "id": item.id,
-        "product": item.product.name,
-        "price": item.product.price,
-        "quantity": item.quantity
-    } for item in cart_items])
+    logger.info(f"[order.py] User {current_user.id} viewing cart")
+    try:
+        cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
+        return jsonify([
+            {
+                "id": item.id,
+                "product": item.product.name,
+                "price": item.product.price,
+                "quantity": item.quantity
+            } for item in cart_items
+        ])
+    except Exception:
+        logger.error(f"[order.py] Error while fetching cart for user {current_user.id}:\n{traceback.format_exc()}")
+        return jsonify({"error": "Failed to fetch cart"}), 500
+
 
 # ----------------------------
 # Place order
@@ -47,28 +81,49 @@ def view_cart(current_user):
 @order_bp.route('/orders', methods=['POST'])
 @token_required
 def place_order(current_user):
-    cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
-    if not cart_items:
-        return jsonify({"message": "Cart is empty"}), 400
+    logger.info(f"[order.py] User {current_user.id} placing order")
 
-    total = sum(item.product.price * item.quantity for item in cart_items)
-    order = Order(user_id=current_user.id, total_amount=total)
-    db.session.add(order)
-    db.session.commit()
+    try:
+        cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
+        if not cart_items:
+            logger.warning(f"[order.py] Empty cart for user {current_user.id}")
+            return jsonify({"message": "Cart is empty"}), 400
 
-    # Add order items
-    for item in cart_items:
-        order_item = OrderItem(
-            order_id=order.id,
-            product_id=item.product.id,
-            quantity=item.quantity,
-            price=item.product.price
-        )
-        db.session.add(order_item)
-        db.session.delete(item)  # remove from cart
+        total = sum(item.product.price * item.quantity for item in cart_items)
+        order = Order(user_id=current_user.id, total_amount=total)
+        db.session.add(order)
+        db.session.commit()
 
-    db.session.commit()
-    return jsonify({"message": "Order placed successfully", "order_id": order.id})
+        # Add order items
+        for item in cart_items:
+            order_item = OrderItem(
+                order_id=order.id,
+                product_id=item.product.id,
+                quantity=item.quantity,
+                price=item.product.price
+            )
+            db.session.add(order_item)
+            db.session.delete(item)  # remove from cart
+
+        db.session.commit()
+        logger.info(f"[order.py] Order {order.id} placed successfully by user {current_user.id}")
+        return jsonify({"message": "Order placed successfully", "order_id": order.id}), 201
+
+    except IntegrityError as e:
+        db.session.rollback()
+        logger.warning(f"[order.py] Integrity error while placing order: {str(e.orig)}")
+        return jsonify({"error": f"Integrity error: {str(e.orig)}"}), 400
+
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.error(f"[order.py] SQLAlchemy error while placing order:\n{traceback.format_exc()}")
+        return jsonify({"error": "Database error"}), 500
+
+    except Exception:
+        db.session.rollback()
+        logger.error(f"[order.py] Unexpected error while placing order:\n{traceback.format_exc()}")
+        return jsonify({"error": "Internal server error"}), 500
+
 
 # ----------------------------
 # View orders
@@ -76,18 +131,28 @@ def place_order(current_user):
 @order_bp.route('/orders', methods=['GET'])
 @token_required
 def view_orders(current_user):
-    orders = Order.query.filter_by(user_id=current_user.id).all()
-    result = []
-    for order in orders:
-        items = [{
-            "product": item.product.name,
-            "quantity": item.quantity,
-            "price": item.price
-        } for item in order.order_items]
-        result.append({
-            "order_id": order.id,
-            "total_amount": order.total_amount,
-            "status": order.status,
-            "items": items
-        })
-    return jsonify(result)
+    logger.info(f"[order.py] User {current_user.id} viewing orders")
+
+    try:
+        orders = Order.query.filter_by(user_id=current_user.id).all()
+        result = []
+        for order in orders:
+            items = [
+                {
+                    "product": item.product.name,
+                    "quantity": item.quantity,
+                    "price": item.price
+                } for item in order.order_items
+            ]
+            result.append({
+                "order_id": order.id,
+                "total_amount": order.total_amount,
+                "status": order.status,
+                "items": items
+            })
+
+        return jsonify(result), 200
+
+    except Exception:
+        logger.error(f"[order.py] Error while fetching orders for user {current_user.id}:\n{traceback.format_exc()}")
+        return jsonify({"error": "Failed to fetch orders"}), 500
