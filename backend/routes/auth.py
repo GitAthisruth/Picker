@@ -8,8 +8,10 @@ import traceback
 from logger_config import logger
 
 auth_bp = Blueprint('auth', __name__)
-
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev_secret_key")
+
+# Default admin email
+DEFAULT_ADMIN_EMAIL = "RaptorPicker@gmail.com"
 
 # ----------------------------
 # Register Route
@@ -20,21 +22,30 @@ def register():
     logger.info("[auth.py] Register endpoint called")
 
     try:
+        # Validate required fields
         if not all(k in data for k in ("username", "email", "password")):
             logger.warning("[auth.py] Missing fields in registration data")
             return jsonify({"error": "Missing username, email, or password"}), 400
 
+        # Check if email already exists
         if User.query.filter_by(email=data['email']).first():
             logger.warning(f"[auth.py] Registration attempt with existing email: {data['email']}")
             return jsonify({"message": "Email already registered"}), 400
 
-        user = User(username=data['username'], email=data['email'])
+        # Create user
+        is_admin_flag = True if data['email'].lower() == DEFAULT_ADMIN_EMAIL.lower() else False
+
+        user = User(
+            username=data['username'],
+            email=data['email'],
+            is_admin=is_admin_flag  # ✅ set admin if email matches
+        )
         user.set_password(data['password'])
         db.session.add(user)
         db.session.commit()
 
-        logger.info(f"[auth.py] New user registered successfully: {data['email']}")
-        return jsonify({"message": "User registered successfully"}), 201
+        logger.info(f"[auth.py] New user registered successfully: {data['email']} | Admin: {is_admin_flag}")
+        return jsonify({"message": "User registered successfully", "is_admin": is_admin_flag}), 201
 
     except IntegrityError as e:
         db.session.rollback()
@@ -66,7 +77,6 @@ def login():
             return jsonify({"error": "Missing email or password"}), 400
 
         user = User.query.filter_by(email=data['email']).first()
-
         if not user or not user.check_password(data['password']):
             logger.warning(f"[auth.py] Invalid login attempt for email: {data.get('email')}")
             return jsonify({"message": "Invalid email or password"}), 401
@@ -77,7 +87,10 @@ def login():
         }, SECRET_KEY, algorithm="HS256")
 
         logger.info(f"[auth.py] User logged in successfully: {data['email']}")
-        return jsonify({"token": token}), 200
+        return jsonify({
+            "token": token,
+            "is_admin": user.is_admin  # ✅ Important change
+        }), 200
 
     except SQLAlchemyError:
         logger.error(f"[auth.py] SQLAlchemy error during login:\n{traceback.format_exc()}")

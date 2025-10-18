@@ -1,0 +1,45 @@
+body {
+  font-family: Arial, sans-serif;
+  background: #f6f8fa;
+  margin: 0;
+}
+
+.container {
+  padding: 20px;
+}
+
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  background: #20232a;
+  color: white;
+  padding: 10px 20px;
+}
+
+.navbar a, .navbar button {
+  color: white;
+  text-decoration: none;
+  margin: 0 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.form-container {
+  width: 300px;
+  margin: 50px auto;
+  text-align: center;
+}
+
+.product-grid {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.product-card {
+  background: white;
+  margin: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  width: 200px;
+}
