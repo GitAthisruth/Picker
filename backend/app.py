@@ -36,58 +36,6 @@ db.init_app(app)
 # Routes
 # ----------------------------
 
-@app.route("/api/products", methods=["GET"])
-def get_products():
-    """Fetch all products."""
-    try:
-        products = Product.query.all()
-        result = [
-            {"id": p.id, "name": p.name, "price": p.price, "description": p.description}
-            for p in products
-        ]
-        return jsonify(result), 200
-
-    except SQLAlchemyError:
-        logger.error("[app.py] SQLAlchemy error while fetching products:\n" + traceback.format_exc())
-        return jsonify({"error": "Database error while fetching products"}), 500
-
-    except Exception:
-        logger.error("[app.py] Unexpected error while fetching products:\n" + traceback.format_exc())
-        return jsonify({"error": "Internal server error"}), 500
-
-
-@app.route("/api/products", methods=["POST"])
-def add_product():
-    """Add a new product."""
-    data = request.get_json()
-    try:
-        new_product = Product(
-            name=data["name"],
-            price=data["price"],
-            description=data.get("description", "")
-        )
-        db.session.add(new_product)
-        db.session.commit()
-
-        logger.info(f"[app.py] Product '{data['name']}' added successfully.")
-        return jsonify({"message": "Product added!"}), 201
-
-    except IntegrityError as e:
-        db.session.rollback()
-        logger.warning(f"[app.py] IntegrityError while adding product '{data.get('name')}': {str(e.orig)}")
-        return jsonify({"error": f"Integrity error: {str(e.orig)}"}), 400
-
-    except SQLAlchemyError:
-        db.session.rollback()
-        logger.error(f"[app.py] SQLAlchemyError while adding product '{data.get('name')}':\n" + traceback.format_exc())
-        return jsonify({"error": "Database error"}), 500
-
-    except Exception:
-        db.session.rollback()
-        logger.error(f"[app.py] Unexpected error while adding product '{data.get('name')}':\n" + traceback.format_exc())
-        return jsonify({"error": "Internal server error"}), 500
-
-
 # ----------------------------
 # Register Blueprints
 # ----------------------------

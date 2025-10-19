@@ -26,11 +26,23 @@ def add_to_cart(current_user):
             logger.warning(f"[order.py] Product not found: {data['product_id']}")
             return jsonify({"message": "Product not found"}), 404
 
+        # ✅ Check stock before adding to cart
+        quantity_to_add = data.get('quantity', 1)
+        if product.stock <= 0:
+            logger.warning(f"[order.py] Product {product.id} out of stock")
+            return jsonify({"message": "Stock Out"}), 400
+
+        # ✅ Check if adding exceeds stock
         cart_item = CartItem.query.filter_by(user_id=current_user.id, product_id=product.id).first()
         if cart_item:
-            cart_item.quantity += data.get('quantity', 1)
+            if cart_item.quantity + quantity_to_add > product.stock:
+                logger.warning(f"[order.py] Insufficient stock for product {product.id}")
+                return jsonify({"message": "Stock Out"}), 400
+            cart_item.quantity += quantity_to_add
         else:
-            cart_item = CartItem(user_id=current_user.id, product_id=product.id, quantity=data.get('quantity', 1))
+            if quantity_to_add > product.stock:
+                return jsonify({"message": "Stock Out"}), 400
+            cart_item = CartItem(user_id=current_user.id, product_id=product.id, quantity=quantity_to_add)
             db.session.add(cart_item)
 
         db.session.commit()
@@ -67,7 +79,8 @@ def view_cart(current_user):
                 "id": item.id,
                 "product": item.product.name,
                 "price": item.product.price,
-                "quantity": item.quantity
+                "quantity": item.quantity,
+                "available_stock": item.product.stock
             } for item in cart_items
         ])
     except Exception:
@@ -89,13 +102,20 @@ def place_order(current_user):
             logger.warning(f"[order.py] Empty cart for user {current_user.id}")
             return jsonify({"message": "Cart is empty"}), 400
 
+        # ✅ Verify stock before creating order
+        for item in cart_items:
+            if item.quantity > item.product.stock:
+                logger.warning(f"[order.py] Not enough stock for {item.product.name}")
+                return jsonify({"message": f"Stock Out for {item.product.name}"}), 400
+
         total = sum(item.product.price * item.quantity for item in cart_items)
         order = Order(user_id=current_user.id, total_amount=total)
         db.session.add(order)
         db.session.commit()
 
-        # Add order items
+        # ✅ Create order items and reduce stock
         for item in cart_items:
+            item.product.stock -= item.quantity  # reduce stock
             order_item = OrderItem(
                 order_id=order.id,
                 product_id=item.product.id,

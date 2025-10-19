@@ -8,17 +8,32 @@ import Orders from "./pages/Orders";
 import Navbar from "./components/Navbar";
 import AdminDashboard from "./pages/AdminDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import "./styles/main.css";
 
 function App() {
   return (
     <Router>
       <Navbar />
+      {/* ✅ Toast container for global notifications */}
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop={true}
+        closeOnClick
+        pauseOnHover
+        draggable
+        theme="colored"
+      />
+
       <div className="container">
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+
           <Route
             path="/cart"
             element={
@@ -27,6 +42,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/orders"
             element={
@@ -35,6 +51,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/admin"
             element={
