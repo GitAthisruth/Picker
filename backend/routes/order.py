@@ -77,15 +77,21 @@ def place_order(current_user):
         if not cart_items:
             return jsonify({"error": "Cart is empty"}), 400
 
+        total_amount = 0
         # Atomic stock check and update
         for item in cart_items:
             product = Product.query.with_for_update().get(item.product_id)  # locks row
             if product.stock < item.quantity:
                 return jsonify({"error": f"{product.name} is out of stock"}), 400
             product.stock -= item.quantity
+            total_amount += item.quantity * product.price  # sum total
 
-        # Create order
-        order = Order(user_id=current_user.id)
+        # Create order with total_amount
+        order = Order(
+            user_id=current_user.id,
+            total_amount=total_amount,  # <-- fix here
+            status="Pending"
+        )
         db.session.add(order)
         db.session.flush()  # get order.id
 
@@ -100,16 +106,16 @@ def place_order(current_user):
             db.session.delete(item)  # remove from cart
 
         db.session.commit()
-        logger.info(f"[product.py] User {current_user.id} placed order {order.id}")
+        logger.info(f"[order.py] User {current_user.id} placed order {order.id}")
         return jsonify({"message": "Order placed successfully"}), 200
 
     except SQLAlchemyError:
         db.session.rollback()
-        logger.error(f"[product.py] SQLAlchemy error in place_order:\n{traceback.format_exc()}")
+        logger.error(f"[order.py] SQLAlchemy error in place_order:\n{traceback.format_exc()}")
         return jsonify({"error": "Database error"}), 500
     except Exception:
         db.session.rollback()
-        logger.error(f"[product.py] Unexpected error in place_order:\n{traceback.format_exc()}")
+        logger.error(f"[order.py] Unexpected error in place_order:\n{traceback.format_exc()}")
         return jsonify({"error": "Internal server error"}), 500
 
 
