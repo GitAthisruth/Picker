@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import api from "../api";
 import {
   Box,
   Card,
@@ -11,31 +10,52 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { motion } from "framer-motion";
+import api from "../api";
 import { toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
 
-export default function Products() {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function Products({ products, refreshProducts }) {
+  const [cart, setCart] = useState([]);
+  const [loadingCart, setLoadingCart] = useState(true);
 
-  useEffect(() => {
-    api
-      .get("/products")
-      .then((res) => setProducts(res.data))
-      .catch(() => toast.error("Failed to load products"))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const addToCart = async (id) => {
+  // Fetch user cart to check quantity
+  const fetchCart = async () => {
     try {
-      await api.post("/cart", { product_id: id, quantity: 1 });
-      toast.success("✅ Added to cart!");
-    } catch (err) {
-      toast.error("⚠️ Please login or check stock!");
+      const res = await api.get("/cart");
+      setCart(res.data);
+    } catch {
+      toast.error("Failed to load cart", { autoClose: 3000 });
+    } finally {
+      setLoadingCart(false);
     }
   };
 
-  if (loading) {
+  useEffect(() => {
+    fetchCart();
+  }, []);
+
+  const addToCart = async (product) => {
+    try {
+      // Check cart quantity
+      const cartItem = cart.find((item) => item.product_id === product.id);
+      const cartQty = cartItem ? cartItem.quantity : 0;
+
+      if (cartQty >= product.stock) {
+        toast.error("❌ Cannot add more than available stock!", { autoClose: 3000 });
+        return;
+      }
+
+      await api.post("/cart", { product_id: product.id, quantity: 1 });
+      toast.success("✅ Added to cart!", { autoClose: 3000 });
+
+      // Refresh cart and products
+      fetchCart();
+      if (refreshProducts) refreshProducts();
+    } catch (err) {
+      toast.error("⚠️ Something went wrong!", { autoClose: 3000 });
+    }
+  };
+
+  if (!products || products.length === 0 || loadingCart) {
     return (
       <Box
         display="flex"
@@ -50,73 +70,66 @@ export default function Products() {
   }
 
   return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        background: "linear-gradient(to right, #8f94fb, #4e54c8)",
-        p: 4,
-      }}
-    >
-      <Typography
-        variant="h4"
-        color="white"
-        textAlign="center"
-        fontWeight="bold"
-        gutterBottom
-      >
+    <Box sx={{ minHeight: "100vh", background: "linear-gradient(to right, #8f94fb, #4e54c8)", p: 4 }}>
+      <Typography variant="h4" color="white" textAlign="center" fontWeight="bold" gutterBottom>
         🛍️ Available Products
       </Typography>
 
       <Grid container spacing={3} justifyContent="center">
-        {products.map((p, index) => (
-          <Grid item xs={12} sm={6} md={4} lg={3} key={p.id}>
-            <motion.div
-              initial={{ opacity: 0, y: 40 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1, duration: 0.4 }}
-            >
-              <Card
-                sx={{
-                  borderRadius: 3,
-                  boxShadow: 5,
-                  backgroundColor: "#fff",
-                  transition: "transform 0.3s ease",
-                  "&:hover": { transform: "scale(1.03)" },
-                }}
+        {products.map((p, index) => {
+          const cartItem = cart.find((item) => item.product_id === p.id);
+          const cartQty = cartItem ? cartItem.quantity : 0;
+          const isOutOfStock = p.stock === 0 || cartQty >= p.stock;
+
+          return (
+            <Grid item xs={12} sm={6} md={4} lg={3} key={p.id}>
+              <motion.div
+                initial={{ opacity: 0, y: 40 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1, duration: 0.4 }}
               >
-                <CardContent>
-                  <Typography variant="h6" color="primary" gutterBottom>
-                    {p.name}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {p.description || "No description available."}
-                  </Typography>
-                  <Typography
-                    variant="h6"
-                    color="secondary"
-                    sx={{ mt: 1, fontWeight: "bold" }}
-                  >
-                    ₹{p.price}
-                  </Typography>
-                </CardContent>
-                <CardActions sx={{ justifyContent: "center", pb: 2 }}>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={() => addToCart(p.id)}
-                    sx={{
-                      borderRadius: 2,
-                      textTransform: "none",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    Add to Cart
-                  </Button>
-                </CardActions>
-              </Card>
-            </motion.div>
-          </Grid>
-        ))}
+                <Card
+                  sx={{
+                    borderRadius: 3,
+                    boxShadow: 5,
+                    backgroundColor: "#fff",
+                    transition: "transform 0.3s ease",
+                    "&:hover": { transform: "scale(1.03)" },
+                  }}
+                >
+                  <CardContent>
+                    <Typography variant="h6" color="primary" gutterBottom>
+                      {p.name}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {p.description || "No description available."}
+                    </Typography>
+                    <Typography variant="h6" color="secondary" sx={{ mt: 1, fontWeight: "bold" }}>
+                      ₹{p.price}
+                    </Typography>
+                    {isOutOfStock && (
+                      <Typography color="error" variant="body2" sx={{ mt: 1 }}>
+                        ❌ Out of Stock
+                      </Typography>
+                    )}
+                  </CardContent>
+                  <CardActions sx={{ justifyContent: "center", pb: 2 }}>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      size="large"
+                      onClick={() => addToCart(p)}
+                      disabled={isOutOfStock}
+                      sx={{ borderRadius: 2, textTransform: "none", fontWeight: "bold" }}
+                    >
+                      {isOutOfStock ? "Out of Stock" : "Add to Cart"}
+                    </Button>
+                  </CardActions>
+                </Card>
+              </motion.div>
+            </Grid>
+          );
+        })}
       </Grid>
     </Box>
   );

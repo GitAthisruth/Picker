@@ -36,8 +36,10 @@ export default function Cart() {
       await api.post("/orders");
       toast.success("🎉 Order placed successfully!");
       fetchCart();
-    } catch {
-      toast.error("Failed to place order. Please try again.");
+    } catch (err) {
+      const errorMessage =
+        err.response?.data?.error || "Failed to place order. Please try again.";
+      toast.error(`⚠️ ${errorMessage}`);
     } finally {
       setPlacingOrder(false);
     }
@@ -47,10 +49,7 @@ export default function Cart() {
     fetchCart();
   }, []);
 
-  const totalAmount = cart.reduce(
-    (sum, item) => sum + item.price * item.quantity,
-    0
-  );
+  const totalAmount = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   if (loading) {
     return (
@@ -74,13 +73,7 @@ export default function Cart() {
         p: 4,
       }}
     >
-      <Typography
-        variant="h4"
-        color="white"
-        textAlign="center"
-        fontWeight="bold"
-        gutterBottom
-      >
+      <Typography variant="h4" color="white" textAlign="center" fontWeight="bold" gutterBottom>
         🛒 Your Cart
       </Typography>
 
@@ -111,12 +104,13 @@ export default function Cart() {
                       <Typography variant="h6" color="primary" fontWeight="bold">
                         {item.product}
                       </Typography>
-                      <Typography color="text.secondary">
-                        Quantity: {item.quantity}
-                      </Typography>
-                      <Typography color="text.secondary">
-                        Price: ₹{item.price}
-                      </Typography>
+                      <Typography color="text.secondary">Quantity: {item.quantity}</Typography>
+                      <Typography color="text.secondary">Price: ₹{item.price}</Typography>
+                      {item.stock === 0 && (
+                        <Typography color="error" variant="body2" sx={{ mt: 1 }}>
+                          ❌ Out of stock
+                        </Typography>
+                      )}
                     </CardContent>
                   </Card>
                 </motion.div>

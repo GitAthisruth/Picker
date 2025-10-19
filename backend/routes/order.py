@@ -13,55 +13,37 @@ order_bp = Blueprint('order', __name__)
 @order_bp.route('/cart', methods=['POST'])
 @token_required
 def add_to_cart(current_user):
-    logger.info(f"[order.py] User {current_user.id} attempting to add item to cart")
-
     try:
         data = request.get_json()
-        if not data or 'product_id' not in data:
-            logger.warning("[order.py] Missing product_id in add_to_cart request")
-            return jsonify({"error": "Missing product_id"}), 400
+        product_id = data.get("product_id")
+        quantity = data.get("quantity", 1)
 
-        product = Product.query.get(data['product_id'])
+        product = Product.query.get(product_id)
         if not product:
-            logger.warning(f"[order.py] Product not found: {data['product_id']}")
-            return jsonify({"message": "Product not found"}), 404
+            return jsonify({"error": "Product not found"}), 404
 
-        # ✅ Check stock before adding to cart
-        quantity_to_add = data.get('quantity', 1)
-        if product.stock <= 0:
-            logger.warning(f"[order.py] Product {product.id} out of stock")
-            return jsonify({"message": "Stock Out"}), 400
+        if product.stock == 0:
+            return jsonify({"error": "Product is out of stock"}), 400
 
-        # ✅ Check if adding exceeds stock
-        cart_item = CartItem.query.filter_by(user_id=current_user.id, product_id=product.id).first()
+        # Check if item already in cart
+        cart_item = CartItem.query.filter_by(user_id=current_user.id, product_id=product_id).first()
         if cart_item:
-            if cart_item.quantity + quantity_to_add > product.stock:
-                logger.warning(f"[order.py] Insufficient stock for product {product.id}")
-                return jsonify({"message": "Stock Out"}), 400
-            cart_item.quantity += quantity_to_add
+            cart_item.quantity += quantity
         else:
-            if quantity_to_add > product.stock:
-                return jsonify({"message": "Stock Out"}), 400
-            cart_item = CartItem(user_id=current_user.id, product_id=product.id, quantity=quantity_to_add)
+            cart_item = CartItem(user_id=current_user.id, product_id=product_id, quantity=quantity)
             db.session.add(cart_item)
 
         db.session.commit()
-        logger.info(f"[order.py] Product {product.id} added to cart for user {current_user.id}")
-        return jsonify({"message": "Item added to cart"}), 200
-
-    except IntegrityError as e:
-        db.session.rollback()
-        logger.warning(f"[order.py] Integrity error while adding to cart: {str(e.orig)}")
-        return jsonify({"error": f"Integrity error: {str(e.orig)}"}), 400
+        logger.info(f"[product.py] User {current_user.id} added product {product_id} to cart")
+        return jsonify({"message": "Added to cart successfully"}), 200
 
     except SQLAlchemyError:
         db.session.rollback()
-        logger.error(f"[order.py] SQLAlchemy error while adding to cart:\n{traceback.format_exc()}")
+        logger.error(f"[product.py] SQLAlchemy error in add_to_cart:\n{traceback.format_exc()}")
         return jsonify({"error": "Database error"}), 500
-
     except Exception:
         db.session.rollback()
-        logger.error(f"[order.py] Unexpected error while adding to cart:\n{traceback.format_exc()}")
+        logger.error(f"[product.py] Unexpected error in add_to_cart:\n{traceback.format_exc()}")
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -89,36 +71,32 @@ def view_cart(current_user):
 
 
 # ----------------------------
-# Place order
+# Place Order
 # ----------------------------
 @order_bp.route('/orders', methods=['POST'])
 @token_required
 def place_order(current_user):
-    logger.info(f"[order.py] User {current_user.id} placing order")
-
     try:
         cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
         if not cart_items:
-            logger.warning(f"[order.py] Empty cart for user {current_user.id}")
-            return jsonify({"message": "Cart is empty"}), 400
+            return jsonify({"error": "Cart is empty"}), 400
 
-        # ✅ Verify stock before creating order
+        # Atomic stock check and update
         for item in cart_items:
-            if item.quantity > item.product.stock:
-                logger.warning(f"[order.py] Not enough stock for {item.product.name}")
-                return jsonify({"message": f"Stock Out for {item.product.name}"}), 400
+            product = Product.query.with_for_update().get(item.product_id)  # locks row
+            if product.stock < item.quantity:
+                return jsonify({"error": f"{product.name} is out of stock"}), 400
+            product.stock -= item.quantity
 
-        total = sum(item.product.price * item.quantity for item in cart_items)
-        order = Order(user_id=current_user.id, total_amount=total)
+        # Create order
+        order = Order(user_id=current_user.id)
         db.session.add(order)
-        db.session.commit()
+        db.session.flush()  # get order.id
 
-        # ✅ Create order items and reduce stock
         for item in cart_items:
-            item.product.stock -= item.quantity  # reduce stock
             order_item = OrderItem(
                 order_id=order.id,
-                product_id=item.product.id,
+                product_id=item.product_id,
                 quantity=item.quantity,
                 price=item.product.price
             )
@@ -126,22 +104,16 @@ def place_order(current_user):
             db.session.delete(item)  # remove from cart
 
         db.session.commit()
-        logger.info(f"[order.py] Order {order.id} placed successfully by user {current_user.id}")
-        return jsonify({"message": "Order placed successfully", "order_id": order.id}), 201
-
-    except IntegrityError as e:
-        db.session.rollback()
-        logger.warning(f"[order.py] Integrity error while placing order: {str(e.orig)}")
-        return jsonify({"error": f"Integrity error: {str(e.orig)}"}), 400
+        logger.info(f"[product.py] User {current_user.id} placed order {order.id}")
+        return jsonify({"message": "Order placed successfully"}), 200
 
     except SQLAlchemyError:
         db.session.rollback()
-        logger.error(f"[order.py] SQLAlchemy error while placing order:\n{traceback.format_exc()}")
+        logger.error(f"[product.py] SQLAlchemy error in place_order:\n{traceback.format_exc()}")
         return jsonify({"error": "Database error"}), 500
-
     except Exception:
         db.session.rollback()
-        logger.error(f"[order.py] Unexpected error while placing order:\n{traceback.format_exc()}")
+        logger.error(f"[product.py] Unexpected error in place_order:\n{traceback.format_exc()}")
         return jsonify({"error": "Internal server error"}), 500
 
 

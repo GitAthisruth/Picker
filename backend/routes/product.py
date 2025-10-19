@@ -1,9 +1,10 @@
 from flask import Blueprint, request, jsonify
-from models import db, Product, User
+from models import db, Product, User, CartItem, Order, OrderItem
 from functools import wraps
 import jwt
 import os
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy import select, update
 import traceback
 from logger_config import logger
 
@@ -11,7 +12,7 @@ product_bp = Blueprint('product', __name__)
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev_secret_key")
 
 # ----------------------------
-# Helper: Auth Decorator
+# Auth Decorator
 # ----------------------------
 def token_required(f):
     @wraps(f)
@@ -39,7 +40,6 @@ def token_required(f):
         return f(current_user, *args, **kwargs)
     return decorated
 
-
 # ----------------------------
 # Get all products
 # ----------------------------
@@ -61,7 +61,6 @@ def get_products():
     except SQLAlchemyError:
         logger.error(f"[product.py] SQLAlchemy error while fetching products:\n{traceback.format_exc()}")
         return jsonify({"error": "Database error while fetching products"}), 500
-
     except Exception:
         logger.error(f"[product.py] Unexpected error while fetching products:\n{traceback.format_exc()}")
         return jsonify({"error": "Internal server error"}), 500
@@ -74,7 +73,6 @@ def get_products():
 @token_required
 def add_product(current_user):
     logger.info(f"[product.py] User {current_user.id} attempting to add product")
-
     if not current_user.is_admin:
         logger.warning(f"[product.py] Unauthorized access attempt by user {current_user.id}")
         return jsonify({"message": "Admin access required"}), 403
@@ -94,7 +92,6 @@ def add_product(current_user):
 
         db.session.add(new_product)
         db.session.commit()
-
         logger.info(f"[product.py] Product '{new_product.name}' added successfully by admin {current_user.id}")
         return jsonify({"message": "Product added successfully"}), 201
 
@@ -112,3 +109,6 @@ def add_product(current_user):
         db.session.rollback()
         logger.error(f"[product.py] Unexpected error while adding product:\n{traceback.format_exc()}")
         return jsonify({"error": "Internal server error"}), 500
+
+
+
