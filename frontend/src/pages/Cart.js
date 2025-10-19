@@ -9,6 +9,7 @@ import {
   Button,
   Divider,
   CircularProgress,
+  CardActions,
 } from "@mui/material";
 import { motion } from "framer-motion";
 import { toast } from "react-toastify";
@@ -19,35 +20,66 @@ export default function Cart() {
   const [loading, setLoading] = useState(true);
   const [placingOrder, setPlacingOrder] = useState(false);
 
+  // Fetch cart from backend
   const fetchCart = async () => {
     try {
       const res = await api.get("/cart");
       setCart(res.data);
     } catch {
-      toast.error("Failed to load cart. Please login first!");
+      toast.error("Failed to load cart. Please login first!", { autoClose: 3000 });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const placeOrder = async () => {
-    try {
-      setPlacingOrder(true);
-      await api.post("/orders");
-      toast.success("🎉 Order placed successfully!");
-      fetchCart();
-    } catch (err) {
-      const errorMessage =
-        err.response?.data?.error || "Failed to place order. Please try again.";
-      toast.error(`⚠️ ${errorMessage}`);
-    } finally {
-      setPlacingOrder(false);
     }
   };
 
   useEffect(() => {
     fetchCart();
   }, []);
+
+  // Update cart item quantity
+  const changeCartQuantity = async (item, delta) => {
+    try {
+      const newQty = item.quantity + delta;
+
+      if (newQty < 0) return; // prevent negative
+      if (newQty > item.available_stock) {
+        toast.error("❌ Cannot exceed stock!", { autoClose: 3000 });
+        return;
+      }
+
+      await api.patch(`/cart/${item.product_id}`, { quantity: newQty });
+      fetchCart();
+    } catch {
+      toast.error("⚠️ Failed to update cart", { autoClose: 3000 });
+    }
+  };
+
+  // Delete cart item
+  const deleteCartItem = async (item) => {
+    try {
+      await api.patch(`/cart/${item.product_id}`, { quantity: 0 });
+      toast.success("🗑️ Item removed from cart", { autoClose: 2000 });
+      fetchCart();
+    } catch {
+      toast.error("⚠️ Failed to remove item", { autoClose: 3000 });
+    }
+  };
+
+  // Place order
+  const placeOrder = async () => {
+    try {
+      setPlacingOrder(true);
+      await api.post("/orders");
+      toast.success("🎉 Order placed successfully!", { autoClose: 3000 });
+      fetchCart();
+    } catch (err) {
+      const errorMessage =
+        err.response?.data?.error || "Failed to place order. Please try again.";
+      toast.error(`⚠️ ${errorMessage}`, { autoClose: 3000 });
+    } finally {
+      setPlacingOrder(false);
+    }
+  };
 
   const totalAmount = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
@@ -104,14 +136,42 @@ export default function Cart() {
                       <Typography variant="h6" color="primary" fontWeight="bold">
                         {item.product}
                       </Typography>
-                      <Typography color="text.secondary">Quantity: {item.quantity}</Typography>
                       <Typography color="text.secondary">Price: ₹{item.price}</Typography>
-                      {item.stock === 0 && (
-                        <Typography color="error" variant="body2" sx={{ mt: 1 }}>
-                          ❌ Out of stock
-                        </Typography>
-                      )}
                     </CardContent>
+
+                    <CardActions sx={{ justifyContent: "space-between", px: 2, pb: 1 }}>
+                      <Button
+                        size="small"
+                        onClick={() => changeCartQuantity(item, -1)}
+                        disabled={item.quantity <= 0}
+                      >
+                        −
+                      </Button>
+
+                      <Typography>{item.quantity}</Typography>
+
+                      <Button
+                        size="small"
+                        onClick={() => changeCartQuantity(item, 1)}
+                        disabled={item.quantity >= item.available_stock}
+                      >
+                        +
+                      </Button>
+
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={() => deleteCartItem(item)}
+                      >
+                        🗑️ Delete
+                      </Button>
+                    </CardActions>
+
+                    {item.available_stock === 0 && (
+                      <Typography color="error" variant="body2" sx={{ mt: 1, textAlign: "center" }}>
+                        ❌ Out of stock
+                      </Typography>
+                    )}
                   </Card>
                 </motion.div>
               </Grid>

@@ -53,21 +53,17 @@ def add_to_cart(current_user):
 @order_bp.route('/cart', methods=['GET'])
 @token_required
 def view_cart(current_user):
-    logger.info(f"[order.py] User {current_user.id} viewing cart")
-    try:
-        cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
-        return jsonify([
-            {
-                "id": item.id,
-                "product": item.product.name,
-                "price": item.product.price,
-                "quantity": item.quantity,
-                "available_stock": item.product.stock
-            } for item in cart_items
-        ])
-    except Exception:
-        logger.error(f"[order.py] Error while fetching cart for user {current_user.id}:\n{traceback.format_exc()}")
-        return jsonify({"error": "Failed to fetch cart"}), 500
+    cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
+    return jsonify([
+        {
+            "id": item.id,
+            "product_id": item.product_id,  
+            "product": item.product.name,
+            "price": item.product.price,
+            "quantity": item.quantity,
+            "available_stock": item.product.stock
+        } for item in cart_items
+    ])
 
 
 # ----------------------------
@@ -148,3 +144,35 @@ def view_orders(current_user):
     except Exception:
         logger.error(f"[order.py] Error while fetching orders for user {current_user.id}:\n{traceback.format_exc()}")
         return jsonify({"error": "Failed to fetch orders"}), 500
+
+
+# ----------------------------
+# Update cart item quantity
+# ----------------------------
+@order_bp.route('/cart/<int:product_id>', methods=['PATCH'])
+@token_required
+def update_cart_item(current_user, product_id):
+    try:
+        data = request.get_json()
+        new_quantity = data.get("quantity")
+        if new_quantity is None or new_quantity < 0:
+            return jsonify({"error": "Invalid quantity"}), 400
+
+        cart_item = CartItem.query.filter_by(user_id=current_user.id, product_id=product_id).first()
+        if not cart_item:
+            return jsonify({"error": "Cart item not found"}), 404
+
+        if new_quantity == 0:
+            db.session.delete(cart_item)
+        else:
+            cart_item.quantity = new_quantity
+
+        db.session.commit()
+        return jsonify({"message": "Cart updated"}), 200
+
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Database error"}), 500
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Internal server error"}), 500
