@@ -20,6 +20,7 @@ export default function Products({ products, refreshProducts }) {
   // Fetch user cart to check quantity
   const fetchCart = async () => {
     try {
+      
       const res = await api.get("/cart");
       setCart(res.data);
     } catch {

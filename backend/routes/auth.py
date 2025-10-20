@@ -38,7 +38,7 @@ def register():
         user = User(
             username=data['username'],
             email=data['email'],
-            is_admin=is_admin_flag  # ✅ set admin if email matches
+            is_admin=is_admin_flag 
         )
         user.set_password(data['password'])
         db.session.add(user)
@@ -83,13 +83,13 @@ def login():
 
         token = jwt.encode({
             "user_id": user.id,
-            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=5)
+            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
         }, SECRET_KEY, algorithm="HS256")
 
         logger.info(f"[auth.py] User logged in successfully: {data['email']}")
         return jsonify({
             "token": token,
-            "is_admin": user.is_admin  # ✅ Important change
+            "is_admin": user.is_admin 
         }), 200
 
     except SQLAlchemyError:
