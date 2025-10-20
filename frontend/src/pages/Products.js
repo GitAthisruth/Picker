@@ -16,15 +16,27 @@ import { toast } from "react-toastify";
 export default function Products({ products, refreshProducts }) {
   const [cart, setCart] = useState([]);
   const [loadingCart, setLoadingCart] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // Check if user is logged in (token exists)
+  const token = localStorage.getItem("token");
+  useEffect(() => {
+    setIsLoggedIn(!!token);
+  }, [token]);
 
   // Fetch user cart to check quantity
   const fetchCart = async () => {
+    if (!token) {
+      setLoadingCart(false);
+      return; // skip fetching if not logged in
+    }
+
     try {
-      
       const res = await api.get("/cart");
       setCart(res.data);
-    } catch {
-      toast.error("Failed to load cart", { autoClose: 3000 });
+    } catch (err) {
+      console.error(err);
+      toast.error("⚠️ Failed to load cart", { autoClose: 3000 });
     } finally {
       setLoadingCart(false);
     }
@@ -32,9 +44,14 @@ export default function Products({ products, refreshProducts }) {
 
   useEffect(() => {
     fetchCart();
-  }, []);
+  }, [token]);
 
   const addToCart = async (product) => {
+    if (!token) {
+      toast.error("⚠️ Please login first!", { autoClose: 3000 });
+      return;
+    }
+
     try {
       // Check cart quantity
       const cartItem = cart.find((item) => item.product_id === product.id);
@@ -52,7 +69,14 @@ export default function Products({ products, refreshProducts }) {
       fetchCart();
       if (refreshProducts) refreshProducts();
     } catch (err) {
-      toast.error("⚠️ Something went wrong!", { autoClose: 3000 });
+      console.error(err);
+      if (err.response?.status === 401) {
+        toast.error("⚠️ Please login first!", { autoClose: 3000 });
+      } else if (err.response?.data?.error) {
+        toast.error(`⚠️ ${err.response.data.error}`, { autoClose: 3000 });
+      } else {
+        toast.error("⚠️ Something went wrong!", { autoClose: 3000 });
+      }
     }
   };
 
@@ -120,7 +144,7 @@ export default function Products({ products, refreshProducts }) {
                       color="primary"
                       size="large"
                       onClick={() => addToCart(p)}
-                      disabled={isOutOfStock}
+                      disabled={isOutOfStock || !isLoggedIn}
                       sx={{ borderRadius: 2, textTransform: "none", fontWeight: "bold" }}
                     >
                       {isOutOfStock ? "Out of Stock" : "Add to Cart"}
