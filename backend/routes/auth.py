@@ -6,9 +6,13 @@ import os
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 import traceback
 from logger_config import logger
+import secrets
 
 auth_bp = Blueprint('auth', __name__)
-SECRET_KEY = os.environ.get("SECRET_KEY", "dev_secret_key")
+
+# Use a persistent SECRET_KEY if available, otherwise generate a random one
+# This ensures that when the container restarts, old tokens become invalid automatically
+SECRET_KEY = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 
 # Default admin email
 DEFAULT_ADMIN_EMAIL = "RaptorPicker@gmail.com"
@@ -28,38 +32,41 @@ def register():
             return jsonify({"error": "Missing username, email, or password"}), 400
 
         # Check if email already exists
-        if User.query.filter_by(email=data['email']).first():
+        existing_user = User.query.filter_by(email=data['email']).first()
+        if existing_user:
             logger.warning(f"[auth.py] Registration attempt with existing email: {data['email']}")
             return jsonify({"message": "Email already registered"}), 400
 
-        # Create user
-        is_admin_flag = True if data['email'].lower() == DEFAULT_ADMIN_EMAIL.lower() else False
+        # Determine if admin
+        is_admin_flag = (data['email'].lower() == DEFAULT_ADMIN_EMAIL.lower())
 
+        # Create new user
         user = User(
             username=data['username'],
             email=data['email'],
-            is_admin=is_admin_flag 
+            is_admin=is_admin_flag
         )
         user.set_password(data['password'])
+
         db.session.add(user)
         db.session.commit()
 
-        logger.info(f"[auth.py] New user registered successfully: {data['email']} | Admin: {is_admin_flag}")
+        logger.info(f"[auth.py] User registered: {data['email']} | Admin: {is_admin_flag}")
         return jsonify({"message": "User registered successfully", "is_admin": is_admin_flag}), 201
 
     except IntegrityError as e:
         db.session.rollback()
-        logger.warning(f"[auth.py] Integrity error during registration: {str(e.orig)}")
+        logger.warning(f"[auth.py] Integrity error: {str(e.orig)}")
         return jsonify({"error": f"Integrity error: {str(e.orig)}"}), 400
 
     except SQLAlchemyError:
         db.session.rollback()
-        logger.error(f"[auth.py] SQLAlchemy error during registration:\n{traceback.format_exc()}")
+        logger.error(f"[auth.py] SQLAlchemy error:\n{traceback.format_exc()}")
         return jsonify({"error": "Database error"}), 500
 
     except Exception:
         db.session.rollback()
-        logger.error(f"[auth.py] Unexpected error during registration:\n{traceback.format_exc()}")
+        logger.error(f"[auth.py] Unexpected error:\n{traceback.format_exc()}")
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -81,15 +88,19 @@ def login():
             logger.warning(f"[auth.py] Invalid login attempt for email: {data.get('email')}")
             return jsonify({"message": "Invalid email or password"}), 401
 
+        # Create a new JWT token with expiration
+        exp_time = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
         token = jwt.encode({
             "user_id": user.id,
-            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+            "exp": exp_time
         }, SECRET_KEY, algorithm="HS256")
 
-        logger.info(f"[auth.py] User logged in successfully: {data['email']}")
+        logger.info(f"[auth.py] User logged in: {data['email']} | Token expires at: {exp_time.isoformat()}")
+
         return jsonify({
             "token": token,
-            "is_admin": user.is_admin 
+            "is_admin": user.is_admin,
+            "expires_in": 3600  # 1 hour in seconds
         }), 200
 
     except SQLAlchemyError:
